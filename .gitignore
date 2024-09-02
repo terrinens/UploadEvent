@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/git,windows,linux,jetbrains,jetbrains+iml,jetbrains+all,python,flask
 # Edit at https://www.toptal.com/developers/gitignore?templates=git,windows,linux,jetbrains,jetbrains+iml,jetbrains+all,python,flask
 
+### custom ###
+/test
+
 ### Flask ###
 instance/*
 !instance/.gitignore

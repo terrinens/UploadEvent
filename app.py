@@ -1,9 +1,12 @@
+import argparse
 import os.path
 import re
+from os.path import join as opj
 
 from flask import Flask, request, jsonify
 from werkzeug.datastructures.file_storage import FileStorage
-from os.path import join as opj
+
+from runner_manager import Manager, custom_sort
 
 app = Flask(__name__)
 
@@ -26,19 +29,14 @@ def jar_upload():
 
 
 def jar_manager(jar: FileStorage):
-    save_dir = opj('/home/jars')
     save_path = opj(save_dir, jar.filename)
 
     if os.path.exists(save_path) and os.path.isfile(save_path):
         true_name = jar.filename.split('.')[0]
         file_list = os.listdir(save_dir)
 
-        def extract(string):
-            math = re.search(r'\((\d+)\)', string)
-            return int(math.group(1)) if math else float('-inf')
-
         last_same_files = list(filter(lambda x: true_name in x, file_list))
-        last_same_files.sort(key=extract, reverse=True)
+        last_same_files.sort(key=custom_sort, reverse=True)
 
         if last_same_files:
             last_same_file = last_same_files[0]
@@ -60,4 +58,14 @@ def jar_manager(jar: FileStorage):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
+    parser.add_argument('--save_dir', type=str, required=False, default='c:temp/', help='파일을 저장할 위치')
+
+    args = parser.parse_args()
+
+    backend_port = args.backend_port
+    save_dir = args.save_dir
+
+    Manager(target_dir=save_dir, server_port=backend_port).start()
     app.run(port=4074)
