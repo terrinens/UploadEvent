@@ -40,7 +40,7 @@ def jar_manager(jar: FileStorage):
     save_path = opj(save_dir, jar.filename)
 
     if os.path.exists(save_path) and os.path.isfile(save_path):
-        true_name = jar.filename.split('.')[0]
+        true_name = jar.filename[:jar.filename.rfind('.')]
         file_list = os.listdir(save_dir)
 
         last_same_files = list(filter(lambda x: true_name in x, file_list))
@@ -49,7 +49,7 @@ def jar_manager(jar: FileStorage):
         if last_same_files:
             last_same_file = last_same_files[0]
 
-            if match := re.search(r'(\d+)', last_same_file):
+            if match := re.search(r'(\d+)(?!.*\d)', last_same_file):
                 next_number = int(match[0]) + 1
                 new_name = true_name + f' ({next_number})' + '.' + jar.filename.split('.')[-1]
             else:
@@ -70,6 +70,7 @@ if __name__ == '__main__':
     parser.add_argument('--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
     parser.add_argument('--save_dir', type=str, required=False, default='C:\\temp\\', help='파일을 저장할 위치')
     parser.add_argument('--register', action='store_true', help='app 최초 실행시 서비스를 자동 등록')
+    parser.add_argument('--debug', action='store_true', help='디버깅')
 
     args = parser.parse_args()
 
