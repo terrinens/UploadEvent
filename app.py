@@ -31,6 +31,11 @@ def jar_upload():
     return jar_manager(jar)
 
 
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({'message': '테스트 성공'}), 200
+
+
 def jar_manager(jar: FileStorage):
     save_path = opj(save_dir, jar.filename)
 
