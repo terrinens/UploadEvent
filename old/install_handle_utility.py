@@ -6,7 +6,7 @@ import zipfile
 import tqdm
 
 
-def _download_file(url, destination):
+def download_file(url, destination):
     response = urllib.request.urlopen(url)
     total_size = int(response.getheader('Content-Length', 0))
     block_size = 1024
@@ -47,7 +47,7 @@ def install_handle_utility(path_registration=False, exists_loging=False):
     if not os.path.exists(os.path.join(handle_dir, "handle.exe")):
         print("handle 유틸리티가 설치되어 있지 않습니다. 다운로드 중...")
 
-        _download_file(handle_url, handle_zip_path)
+        download_file(handle_url, handle_zip_path)
 
         # 압축 해제
         with zipfile.ZipFile(handle_zip_path, 'r') as zip_ref:

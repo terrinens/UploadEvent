@@ -6,7 +6,8 @@ from os.path import join as opj
 from flask import Flask, request, jsonify
 from werkzeug.datastructures.file_storage import FileStorage
 
-from runner_manager import Manager, custom_sort
+from manager.runner_manager import Manager, custom_sort
+from manager.service_manager import registration
 
 app = Flask(__name__)
 
@@ -60,12 +61,19 @@ def jar_manager(jar: FileStorage):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
-    parser.add_argument('--save_dir', type=str, required=False, default='c:temp/', help='파일을 저장할 위치')
+    parser.add_argument('--save_dir', type=str, required=False, default='C:\\temp\\', help='파일을 저장할 위치')
+    parser.add_argument('--register', action='store_true', help='app 최초 실행시 서비스를 자동 등록')
 
     args = parser.parse_args()
 
     backend_port = args.backend_port
     save_dir = args.save_dir
+    register = args.register
+
+    print(f"백엔드 포트 : {backend_port}, 디렉토리 : {save_dir} 위치 감시를 시작합니다. ")
+
+    if register:
+        registration(args)
 
     Manager(target_dir=save_dir, server_port=backend_port).start()
     app.run(port=4074)

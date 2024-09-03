@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 
@@ -50,7 +51,11 @@ class Manager(FileSystemEventHandler):
             _start_server(self.server_port, event)
 
     def start(self):
-        threading.Thread(target=self.observer.start, daemon=True).start()
+        try:
+            threading.Thread(target=self.observer.start, daemon=True).start()
+        except FileNotFoundError:
+            print("감시할 위치를 찾지 못했습니다. 프로그램을 종료합니다.")
+            sys.exit()
 
 
 def _get_process_from_port(port):
