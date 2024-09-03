@@ -13,21 +13,39 @@ app_location = os.path.abspath(os.path.join(os.getcwd(), 'app.py'))
 
 
 def registration(args: ArgumentParser.parse_args):
-    service_name = 'Upload Event Control'
+    service_name = 'Upload-Event-Control'
     port = f'--backend_port={args.backend_port}'
     save_dir = f'--save_dir={args.save_dir}'
 
     if os.name == 'nt':
-
         command = _window_reg_service('C:/nssm', service_name, app_location, port, save_dir)
     else:
         _ubuntu_write_servie(service_name, app_location, port, save_dir)
-        command = ['systemctl', 'daemon-reload', 'enable', f'{service_name}', 'start', f'{service_name}']
+        command = [
+            ['systemctl', 'daemon-reload'],
+            ['systemctl', 'enable', f'{service_name}.service'],
+            ['systemctl', 'start', f'{service_name}.service']
+        ]
 
     try:
-        subprocess.run(command, check=True, shell=True)
+        if os.name == 'nt':
+            subprocess.run(command, check=True, shell=True)
+        else:
+            for com in command:
+                subprocess.run(com, check=True)
+
     except subprocess.CalledProcessError as e:
-        print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
+        if os.name != 'nt':
+            try:
+                "관리자 권한으로 서비스 등록을 시작합니다."
+                sudo_commands = [['sudo'] + com for com in command]
+                for command in sudo_commands:
+                    subprocess.run(command, check=True)
+
+            except subprocess.CalledProcessError as e:
+                print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
+        else:
+            print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
 
 
 def _ubuntu_write_servie(service_name, py_path, *py_args):
@@ -47,11 +65,22 @@ def _ubuntu_write_servie(service_name, py_path, *py_args):
     WantedBy=multi-user.target
     """
 
-    service_file_path = f'/etc/systemd/system/{service_name}'
-    with open(service_file_path, 'w') as s:
+    service_file_path = f'/etc/systemd/system/{service_name}.service'
+    temp_path = 'temp.service'
+    with open(temp_path, 'w') as s:
         s.write(service_content)
-
     time.sleep(0.1)
+
+    command = ['mv', temp_path, service_file_path]
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError:
+        try:
+            print('관리자 권한으로 시도합니다.')
+            command.insert(0, 'sudo')
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError:
+            print('관리자 권한으로 시도하였으나, 실패하였습니다.')
 
 
 def _window_check_nssm(nssm_path):

@@ -50,12 +50,15 @@ class Manager(FileSystemEventHandler):
             _wait_for_file(event.src_path)
             _start_server(self.server_port, event)
 
-    def start(self):
+    def __start_observer(self):
         try:
-            threading.Thread(target=self.observer.start, daemon=True).start()
+            self.observer.start()
         except FileNotFoundError:
-            print("감시할 위치를 찾지 못했습니다. 프로그램을 종료합니다.")
-            sys.exit()
+            print("observers : 감시할 위치를 찾지 못했습니다. 프로그램을 종료합니다.")
+            sys.exit(1)
+
+    def start(self):
+        threading.Thread(target=self.__start_observer, daemon=True).start()
 
 
 def _get_process_from_port(port):
