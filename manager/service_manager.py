@@ -12,7 +12,9 @@ from old.install_handle_utility import download_file
 app_location = os.path.abspath(os.path.join(os.getcwd(), 'app.py'))
 
 
-def registration(args: ArgumentParser.parse_args):
+async def registration(args: ArgumentParser.parse_args):
+    success = True
+
     service_name = 'Upload-Event-Control'
     port = f'--backend_port={args.backend_port}'
     save_dir = f'--save_dir={args.save_dir}'
@@ -21,10 +23,12 @@ def registration(args: ArgumentParser.parse_args):
         command = _window_reg_service('C:/nssm', service_name, app_location, port, save_dir)
     else:
         _ubuntu_write_servie(service_name, app_location, port, save_dir)
+        service_file = f'{service_name}.service'
         command = [
             ['systemctl', 'daemon-reload'],
-            ['systemctl', 'enable', f'{service_name}.service'],
-            ['systemctl', 'start', f'{service_name}.service']
+            ['systemctl', 'enable', service_file],
+            ['systemctl', 'start', service_file],
+            ['systemctl', 'status', service_file]
         ]
 
     try:
@@ -37,15 +41,19 @@ def registration(args: ArgumentParser.parse_args):
     except subprocess.CalledProcessError as e:
         if os.name != 'nt':
             try:
-                "관리자 권한으로 서비스 등록을 시작합니다."
+                print("관리자 권한으로 서비스 등록을 시작합니다.")
                 sudo_commands = [['sudo'] + com for com in command]
                 for command in sudo_commands:
                     subprocess.run(command, check=True)
 
             except subprocess.CalledProcessError as e:
+                success = False
                 print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
         else:
+            success = False
             print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
+
+    return success
 
 
 def _ubuntu_write_servie(service_name, py_path, *py_args):

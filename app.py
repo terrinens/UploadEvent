@@ -1,6 +1,8 @@
 import argparse
+import asyncio
 import os.path
 import re
+import sys
 from os.path import join as opj
 
 from flask import Flask, request, jsonify
@@ -73,7 +75,8 @@ if __name__ == '__main__':
     print(f"백엔드 포트 : {backend_port}, 디렉토리 : {save_dir} 위치 감시를 시작합니다. ")
 
     if register:
-        registration(args)
+        success = asyncio.run(registration(args))
+        sys.exit()
 
     Manager(target_dir=save_dir, server_port=backend_port).start()
     app.run(port=4074)
