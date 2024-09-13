@@ -9,14 +9,22 @@ import psutil
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from logger.log import create_logger
+
+log = create_logger('Observer_Log', 'observer.log')
+
+waiting = 0
+ready = True
+
 
 def custom_sort(string):
-    math = re.search(r'\((\d+)\)', string)
-    return int(math.group(1)) if math else float('-inf')
+    match = re.search(r'v(\d+)', string)
+    return int(match.group(1)) if match else float('-inf')
 
 
 def _wait_for_file(file_path, timeout=10):
     start_time = time.time()
+
     while time.time() - start_time < timeout:
         if os.path.exists(file_path):
             initial_size = os.path.getsize(file_path)
@@ -34,12 +42,16 @@ def _require_else(obj, default_value):
 
 class Manager(FileSystemEventHandler):
 
-    def __init__(self, target_dir, server_port):
+    def __init__(self, target_dir, server_port, debug):
         super().__init__()
         self.target_dir = _require_else(target_dir, os.getcwd())
         self.server_port = _require_else(server_port, 8080)
         self.observer = Observer()
         self.observer.schedule(self, self.target_dir, recursive=False)
+
+        if debug:
+            global log
+            log = create_logger('Observer_Log', 'observer.log', console_level=debug)
 
     def on_created(self, event):
         is_dir = event.is_directory
@@ -47,14 +59,17 @@ class Manager(FileSystemEventHandler):
         is_extension_jar = event.src_path.endswith('.jar')
 
         if not is_dir and is_target_dir and is_extension_jar:
+            log.debug('A new file has been detected. Try updating to the new server.')
             _wait_for_file(event.src_path)
             _start_server(self.server_port, event)
 
     def __start_observer(self):
         try:
+            log.debug(f'{self.server_port} Starts port process monitoring.')
+            log.debug(f'{self.target_dir} Starts directory monitoring')
             self.observer.start()
         except FileNotFoundError:
-            print("observers : 감시할 위치를 찾지 못했습니다. 프로그램을 종료합니다.")
+            log.error(f"Directory : {self.target_dir} Location could not be found. Exit the program.")
             sys.exit(1)
 
     def start(self):
@@ -62,6 +77,7 @@ class Manager(FileSystemEventHandler):
 
 
 def _get_process_from_port(port):
+    log.debug('Search for process from port...')
     connections = psutil.net_connections(kind='inet')
     for conn in connections:
         if conn.laddr.port == port:
@@ -78,12 +94,13 @@ def _get_files_used_by_pid(process):
     pid = process.pid
 
     try:
+        log.debug(f'PID : {pid} the list of files used by...')
         file = None
         process = psutil.Process(pid=pid)
         with process.oneshot():
             file = process.open_files()
     except psutil.NoSuchProcess as e:
-        print(f'해당 프로세스를 찾을 수 없습니다. \n{e}')
+        log.error(f'The Process cannot be found. \n{e}')
     finally:
         return file
 
@@ -95,12 +112,14 @@ def _terminate_server(port):
 
     try:
         if process is not None:
+            log.info('Shut down the server to operate the next version...')
             process.terminate()
             process.wait(timeout=5)
 
     except psutil.NoSuchProcess as e:
-        print(f'프로세스를 찾을 수 없습니다. \n{e}')
+        log.error(f'The Process cannot be found. \n{e}')
     except psutil.TimeoutExpired:
+        log.debug('The server shutdown is delayed, so we will force it to shut down.')
         process.kill()
         process.wait()
 
@@ -136,13 +155,15 @@ def _popen_observer(jar_file):
 
 def _rollback_server(before_jar):
     try:
+        log.info('Roll back to the previous server.')
         process, error_message, has_error = _popen_observer(before_jar[0])
 
         if has_error:
-            print(f'이전 JAR {before_jar[0]} 실행을 시도하였으나, 오류가 발생했습니다. 서버를 시작하지 못했습니다.')
+            print(f'An attempt was made to run the previous JAR {before_jar[0]}, '
+                  f'but an error occurred. The server failed to start.')
 
     except FileNotFoundError:
-        print(f'이전 JAR : {before_jar[0]} 실행을 시도하였으나, 파일을 찾지 못했습니다.')
+        print(f'Tried to run previous JAR: {before_jar[0]}, but could not find the file.')
 
 
 def _start_server(server_port, event):
@@ -151,19 +172,20 @@ def _start_server(server_port, event):
     jar_error = False
 
     try:
+        log.info('Start a new version of the server.')
         process, error_message, has_error = _popen_observer(jar)
 
         if has_error and not process.returncode == 3221225786:
-            print(process.returncode)
-            print(f'JAR 파일 실행 중 오류가 발생했습니다. : {error_message}')
-            print(f'이전 실행 JAR 서버로 전환합니다.')
+            log.debug(f'An error occurred while running the JAR file. :{error_message} \n'
+                      f'Switch to the previous executable JAR server.')
             jar_error = True
 
     except FileNotFoundError as e:
-        print(f'JAR 파일을 찾지 못했습니다. 전달 받은 파일 위치 {jar} \n{e}')
+        log.error(f'JAR file not found. Location of the delivered file {jar} \n{e}')
 
     if jar_error:
         if before_jar:
             _rollback_server(before_jar[0])
         else:
-            print('이전에 실행중인 프로세스가 존재하지 않았으므로, 롤백을 시도하지 못했습니다.')
+            log.info('The rollback attempt failed because the previously running process did not exist. '
+                     'There is no running server.')
