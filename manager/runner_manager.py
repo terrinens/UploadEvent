@@ -1,9 +1,10 @@
+import logging
 import os
-import re
 import subprocess
 import sys
 import threading
 import time
+from multiprocessing import Queue
 
 import psutil
 from watchdog.events import FileSystemEventHandler
@@ -11,15 +12,10 @@ from watchdog.observers import Observer
 
 from logger.log import create_logger
 
-log = create_logger('Observer_Log', 'observer.log')
+ob_log = create_logger('Observer_Log', 'rm.log')
+log = create_logger('RM_Log', 'rm.log')
 
-waiting = 0
 ready = True
-
-
-def custom_sort(string):
-    match = re.search(r'v(\d+)', string)
-    return int(match.group(1)) if match else float('-inf')
 
 
 def _wait_for_file(file_path, timeout=10):
@@ -41,17 +37,21 @@ def _require_else(obj, default_value):
 
 
 class Manager(FileSystemEventHandler):
-
     def __init__(self, target_dir, server_port, debug):
         super().__init__()
         self.target_dir = _require_else(target_dir, os.getcwd())
         self.server_port = _require_else(server_port, 8080)
         self.observer = Observer()
         self.observer.schedule(self, self.target_dir, recursive=False)
+        self.queue = Queue()
+        self.uuid = None
+        self.task_list = []
 
         if debug:
-            global log
-            log = create_logger('Observer_Log', 'observer.log', console_level=debug)
+            global ob_log
+            console = ob_log.handlers['console_handler']
+            console.setLevel(logging.DEBUG)
+            ob_log.handlers['console_handler'] = console
 
     def on_created(self, event):
         is_dir = event.is_directory
@@ -59,9 +59,15 @@ class Manager(FileSystemEventHandler):
         is_extension_jar = event.src_path.endswith('.jar')
 
         if not is_dir and is_target_dir and is_extension_jar:
+            global ready
+            if not self.queue.empty() and ready:
+                ready = False
+
             log.debug('A new file has been detected. Try updating to the new server.')
             _wait_for_file(event.src_path)
-            _start_server(self.server_port, event)
+
+            self.task_list.append(self.uuid)
+            self.queue.put((self.uuid, _start_server(self, self.server_port, event)))
 
     def __start_observer(self):
         try:
@@ -72,8 +78,23 @@ class Manager(FileSystemEventHandler):
             log.error(f"Directory : {self.target_dir} Location could not be found. Exit the program.")
             sys.exit(1)
 
+    def is_tasking(self, uuid) -> (bool, int):
+        try:
+            tasking = uuid in self.task_list
+            waiting = self.task_list.index(uuid)
+        except ValueError:
+            tasking = False
+            waiting = 0
+
+        return tasking, waiting
+
+    def complete_tasking(self):
+        if self.uuid in self.task_list:
+            self.task_list.remove(self.uuid)
+
     def start(self):
         threading.Thread(target=self.__start_observer, daemon=True).start()
+        return self
 
 
 def _get_process_from_port(port):
@@ -112,7 +133,7 @@ def _terminate_server(port):
 
     try:
         if process is not None:
-            log.info('Shut down the server to operate the next version...')
+            log.info('Shut down the server to operate the next version.')
             process.terminate()
             process.wait(timeout=5)
 
@@ -153,7 +174,7 @@ def _popen_observer(jar_file):
         return process, None, False
 
 
-def _rollback_server(before_jar):
+async def _rollback_server(before_jar):
     try:
         log.info('Roll back to the previous server.')
         process, error_message, has_error = _popen_observer(before_jar[0])
@@ -166,7 +187,8 @@ def _rollback_server(before_jar):
         print(f'Tried to run previous JAR: {before_jar[0]}, but could not find the file.')
 
 
-def _start_server(server_port, event):
+def _start_server(manager: Manager, server_port, event):
+    uuid = manager.uuid
     jar = event.src_path
     before_jar = _terminate_server(server_port)
     jar_error = False
@@ -189,3 +211,10 @@ def _start_server(server_port, event):
         else:
             log.info('The rollback attempt failed because the previously running process did not exist. '
                      'There is no running server.')
+
+    manager.complete_tasking()
+    if manager.queue.empty():
+        global ready
+        ready = True
+
+    log.info(f'That task has been completed. Completed task number : {uuid}')

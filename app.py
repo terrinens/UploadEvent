@@ -2,13 +2,14 @@ import argparse
 import asyncio
 import os.path
 import sys
+from uuid import UUID
 
 from flask import Flask, request, jsonify
 
 from logger.log import create_logger
-from manager.runner_manager import Manager, waiting, ready
-from manager.service_manager import registration
 from manager.file_manager import file_manager
+from manager.runner_manager import Manager, ready
+from manager.service_manager import registration
 
 app = Flask(__name__)
 
@@ -18,8 +19,6 @@ log = create_logger('UEC_Log', 'uec.log')
 @app.route('/jar_upload', methods=['POST'])
 def jar_upload():
     log.info('Upload has been detected.')
-
-    if not ready: return state()
 
     if files := request.files:
         if 'jar' not in files:
@@ -32,29 +31,51 @@ def jar_upload():
         if file_name is None:
             log.info('Upload event failed. Request where file name does not exist')
             return jsonify({'error': '파일 이름이 존재하지 않습니다.'}), 400
+
         elif not file_name.endswith('.jar'):
             log.info('Upload event failed. Request where file extension is not .jar')
             return jsonify({'error': '확장자가 jar이 아닙니다.'}), 400
 
-    return file_manager(save_dir, jar)
+    uuid, result = file_manager(save_dir, jar)
+    manager.uuid = uuid
+
+    if result:
+        response = jsonify({
+            'message': '업로드가 완료되었습니다. 작업이 진행중 입니다.',
+            'polling': f'/tasking?uuid={uuid}'
+        }), 202
+    else:
+        response = jsonify({'message': '업로드에 실패했습니다.'}), 400
+
+    return response
 
 
 @app.route('/test', methods=['GET'])
 def test(): return jsonify({'message': '테스트 성공'}), 200
 
 
-@app.route('/state', methods=['GET'])
-def state():
-    log.debug('현재 작업 상태를 확인합니다.')
-    if ready:
-        log.debug('다음 작업이 가능합니다.')
-        return jsonify({'message': '다음 작업이 진행 가능합니다.'}), 200
-    else:
-        log.debug(f'현재 작업이 진행중입니다. 대기중인 작업 : {waiting}')
+@app.route('/tasking', methods=['GET'])
+def tasking():
+    uuid = UUID(request.args.get('uuid'))
+    log.debug(f'Check the current task status. Incoming request UUID : {uuid}')
+
+    is_tasking, waiting = manager.is_tasking(uuid)
+
+    if is_tasking:
         return jsonify({
-            'message': f'작업이 진행중입니다. 대기번호 : {waiting}',
-            'polling': f'/state'
-        }), 204
+            'message': f'작업은 진행중입니다. 대기번호 : {waiting}',
+            'polling': f'{request.path}?uuid={uuid}'
+        }), 202
+    else:
+        return jsonify({'message': '해당 작업은 완료되었습니다.'}), 200
+
+
+@app.route('/ready', methods=['GET'])
+def ready():
+    if ready:
+        return jsonify({'message': '대기중인 작업이 없습니다.'}), 200
+    else:
+        return jsonify({'message': f'대기중인 작업의 수 {len(manager.task_list)}'}), 202
 
 
 def add_parse(parse: argparse.ArgumentParser):
@@ -86,7 +107,7 @@ if __name__ == '__main__':
     if debug:
         log = create_logger('UEC_log', 'uec.log', console_level=debug)
 
-    Manager(target_dir=save_dir, server_port=backend_port, debug=debug).start()
+    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug).start()
 
     log.info(f"The server has started. Port : {port}")
     app.run(port=port, debug=debug)
