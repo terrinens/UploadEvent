@@ -41,17 +41,17 @@ async def registration(args: ArgumentParser.parse_args):
     except subprocess.CalledProcessError as e:
         if os.name != 'nt':
             try:
-                print("관리자 권한으로 서비스 등록을 시작합니다.")
+                print("Start registering the service with administrator privileges.")
                 sudo_commands = [['sudo'] + com for com in command]
                 for command in sudo_commands:
                     subprocess.run(command, check=True)
 
             except subprocess.CalledProcessError as e:
                 success = False
-                print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
+                print(f'An error occurred while registering the service. : {e.stderr}')
         else:
             success = False
-            print(f'서비스 등록중 오류가 발생했습니다. : {e.stderr}')
+            print(f'An error occurred while registering the service. : {e.stderr}')
 
     return success
 
@@ -84,11 +84,11 @@ def _ubuntu_write_servie(service_name, py_path, *py_args):
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError:
         try:
-            print('관리자 권한으로 시도합니다.')
+            print('Try with administrator privileges.')
             command.insert(0, 'sudo')
             subprocess.run(command, check=True)
         except subprocess.CalledProcessError:
-            print('관리자 권한으로 시도하였으나, 실패하였습니다.')
+            print('I tried with administrator privileges, but it failed.')
 
 
 def _window_check_nssm(nssm_path):
@@ -96,7 +96,7 @@ def _window_check_nssm(nssm_path):
     nssm_zip_path = 'nssm.zip'
 
     if not os.path.exists(nssm_path):
-        print('nssm 유틸리티를 설치되어있지 않습니다. 다운로드중...')
+        print('nssm The utility is not installed. Downloading...')
 
         download_file(download_url, nssm_zip_path)
 

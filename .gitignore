@@ -3,6 +3,8 @@
 
 ### custom ###
 /test
+/logs
+TODO.txt
 
 ### Flask ###
 instance/*
