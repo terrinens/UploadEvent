@@ -25,10 +25,11 @@ async def registration(args: ArgumentParser.parse_args):
         _ubuntu_write_servie(service_name, app_location, port, save_dir)
         service_file = f'{service_name}.service'
         command = [
-            ['systemctl', 'daemon-reload'],
+            ['systemctl', 'stop', service_file],
             ['systemctl', 'enable', service_file],
             ['systemctl', 'start', service_file],
-            ['systemctl', 'status', service_file]
+            ['systemctl', 'status', service_file],
+            ['systemctl', 'daemon-reload'],
         ]
 
     try:
