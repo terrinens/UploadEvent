@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -11,11 +13,24 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from logger.log import create_logger
+from manager.file_manager import matching_files, old_file_remove
 
-ob_log = create_logger('Observer_Log', 'rm.log')
-log = create_logger('RM_Log', 'rm.log')
+ob_log = create_logger('Observer_Log', 'runner_manager.log')
+log = create_logger('RM_Log', 'runner_manager.log')
 
 ready = True
+
+_loop_thread = None
+_task_list = []
+_managed_file_count = 0
+
+
+def is_ready():
+    return ready and _loop_thread is None
+
+
+def task_count():
+    return len(_task_list)
 
 
 def _wait_for_file(file_path, timeout=10):
@@ -37,15 +52,24 @@ def _require_else(obj, default_value):
 
 
 class Manager(FileSystemEventHandler):
-    def __init__(self, target_dir, server_port, debug):
+    def __init__(self, target_dir, server_port, maintenance_count=math.inf, debug=False):
         super().__init__()
+
         self.target_dir = _require_else(target_dir, os.getcwd())
         self.server_port = _require_else(server_port, 8080)
+
         self.observer = Observer()
         self.observer.schedule(self, self.target_dir, recursive=False)
+
         self.queue = Queue()
+        # 해당 UUID는 어디까지나 새로운 작업을 queue에 전달하기 위해 임의적으로 받아들이는 변수입니다.
+        # queue에서 작업 번호를 부여하기 위한 목적을 제외하고선 사용하지 마십시오.
+        # 해당 uuid를 사용하게 되면 가장 마지막에 할당된 작업 번호로 고정될 확률이 높습니다.
         self.uuid = None
-        self.task_list = []
+
+        self.maintenance_count = maintenance_count
+        global _managed_file_count
+        _managed_file_count = len(matching_files(self.target_dir, '.jar'))
 
         if debug:
             global ob_log
@@ -59,15 +83,29 @@ class Manager(FileSystemEventHandler):
         is_extension_jar = event.src_path.endswith('.jar')
 
         if not is_dir and is_target_dir and is_extension_jar:
-            global ready
-            if not self.queue.empty() and ready:
-                ready = False
-
-            log.debug('A new file has been detected. Try updating to the new server.')
+            ob_log.debug('A new file has been detected. A task has been added to the queue.')
+            ob_log.debug(f'task number : {self.uuid}')
             _wait_for_file(event.src_path)
 
-            self.task_list.append(self.uuid)
-            self.queue.put((self.uuid, _start_server(self, self.server_port, event)))
+            self.__add_queue((self.uuid, event))
+            global _managed_file_count
+            _managed_file_count += 1
+
+    def on_deleted(self, event):
+        global _managed_file_count
+        if (not event.is_directory
+                and event.src_path.endswith('.jar')
+                and _managed_file_count > 0
+        ): _managed_file_count -= 1
+
+    def __file_maintenance(self):
+        global _managed_file_count
+        if _managed_file_count > self.maintenance_count:
+            ob_log.info(
+                f'Delete older versions when the file exceeds its maintenance size. '
+                f'Number of files currently being managed : {_managed_file_count}'
+            )
+            old_file_remove(self.target_dir, '.jar', self.maintenance_count, _task_list)
 
     def __start_observer(self):
         try:
@@ -78,23 +116,73 @@ class Manager(FileSystemEventHandler):
             log.error(f"Directory : {self.target_dir} Location could not be found. Exit the program.")
             sys.exit(1)
 
+    @staticmethod
+    def __get_task_by_uuid(uuid):
+        global _task_list
+        for task in _task_list:
+            if task[0] == uuid:
+                return task
+        return None
+
     def is_tasking(self, uuid) -> (bool, int):
-        try:
-            tasking = uuid in self.task_list
-            waiting = self.task_list.index(uuid)
-        except ValueError:
-            tasking = False
-            waiting = 0
+        global _task_list
+        task = self.__get_task_by_uuid(uuid)
+
+        if task is None:
+            return False, 0
+
+        tasking = task is not None
+        waiting = _task_list.index(task)
 
         return tasking, waiting
 
     def complete_tasking(self):
-        if self.uuid in self.task_list:
-            self.task_list.remove(self.uuid)
+        try:
+            global _task_list
+            _task_list.remove(self.__get_task_by_uuid(self.uuid))
+        except ValueError:
+            pass
 
     def start(self):
         threading.Thread(target=self.__start_observer, daemon=True).start()
         return self
+
+    def __add_queue(self, obj):
+        global _task_list
+        _, event = obj
+        _task_list.append((self.uuid, event.src_path))
+
+        global ready
+        if ready: ready = not ready
+
+        self.queue.put(obj)
+        asyncio.run(self.__start_processing())
+
+    async def __start_processing(self):
+        global _loop_thread
+        if _loop_thread is None:
+            _loop_thread = threading.Thread(target=self.__run_event_loop, daemon=True)
+            _loop_thread.start()
+
+    def __run_event_loop(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.__process_queue())
+        loop.close()
+
+    async def __process_queue(self):
+        while True:
+            uuid, event = self.queue.get()
+            if event is None:
+                global ready
+                ready = True
+
+                global _loop_thread
+                _loop_thread = None
+                break
+
+            await _start_server(self, uuid, event)
+            self.__file_maintenance()
 
 
 def _get_process_from_port(port):
@@ -117,7 +205,6 @@ def _get_files_used_by_pid(process):
     try:
         log.debug(f'PID : {pid} the list of files used by...')
         file = None
-        process = psutil.Process(pid=pid)
         with process.oneshot():
             file = process.open_files()
     except psutil.NoSuchProcess as e:
@@ -174,23 +261,22 @@ def _popen_observer(jar_file):
         return process, None, False
 
 
-async def _rollback_server(before_jar):
+def _rollback_server(before_jar):
     try:
         log.info('Roll back to the previous server.')
         process, error_message, has_error = _popen_observer(before_jar[0])
 
         if has_error:
-            print(f'An attempt was made to run the previous JAR {before_jar[0]}, '
-                  f'but an error occurred. The server failed to start.')
+            log.error(f'An attempt was made to run the previous JAR {before_jar[0]}, '
+                      f'but an error occurred. The server failed to start.')
 
     except FileNotFoundError:
-        print(f'Tried to run previous JAR: {before_jar[0]}, but could not find the file.')
+        log.error(f'Tried to run previous JAR: {before_jar[0]}, but could not find the file.')
 
 
-def _start_server(manager: Manager, server_port, event):
-    uuid = manager.uuid
+async def _start_server(manager: Manager, uuid, event):
     jar = event.src_path
-    before_jar = _terminate_server(server_port)
+    before_jar = _terminate_server(manager.server_port)
     jar_error = False
 
     try:
@@ -209,8 +295,8 @@ def _start_server(manager: Manager, server_port, event):
         if before_jar:
             _rollback_server(before_jar[0])
         else:
-            log.info('The rollback attempt failed because the previously running process did not exist. '
-                     'There is no running server.')
+            log.warning('The rollback attempt failed because the previously running process did not exist. '
+                        'There is no running server.')
 
     manager.complete_tasking()
     if manager.queue.empty():

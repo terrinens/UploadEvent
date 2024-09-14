@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify
 
 from logger.log import create_logger
 from manager.file_manager import file_manager
-from manager.runner_manager import Manager, ready
+from manager.runner_manager import Manager, is_ready, task_count
 from manager.service_manager import registration
 
 app = Flask(__name__)
@@ -41,11 +41,11 @@ def jar_upload():
 
     if result:
         response = jsonify({
-            'message': '업로드가 완료되었습니다. 작업이 진행중 입니다.',
+            'message': 'Upload has been completed. Work is in progress.',
             'polling': f'/tasking?uuid={uuid}'
         }), 202
     else:
-        response = jsonify({'message': '업로드에 실패했습니다.'}), 400
+        response = jsonify({'message': 'Upload failed.'}), 400
 
     return response
 
@@ -63,19 +63,19 @@ def tasking():
 
     if is_tasking:
         return jsonify({
-            'message': f'작업은 진행중입니다. 대기번호 : {waiting}',
+            'message': f'Work is in progress. waiting number : {waiting}',
             'polling': f'{request.path}?uuid={uuid}'
         }), 202
     else:
-        return jsonify({'message': '해당 작업은 완료되었습니다.'}), 200
+        return jsonify({'message': 'That work has been completed.'}), 200
 
 
 @app.route('/ready', methods=['GET'])
 def ready():
-    if ready:
-        return jsonify({'message': '대기중인 작업이 없습니다.'}), 200
+    if is_ready():
+        return jsonify({'message': 'There are no pending tasks.'}), 200
     else:
-        return jsonify({'message': f'대기중인 작업의 수 {len(manager.task_list)}'}), 202
+        return jsonify({'message': f'Number of pending tasks {task_count()}'}), 202
 
 
 def add_parse(parse: argparse.ArgumentParser):
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     if debug:
         log = create_logger('UEC_log', 'uec.log', console_level=debug)
 
-    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug).start()
+    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug, maintenance_count=10).start()
 
     log.info(f"The server has started. Port : {port}")
-    app.run(port=port, debug=debug)
+    app.run(host='0.0.0.0', port=port, debug=debug)
