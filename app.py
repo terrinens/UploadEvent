@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify
 
 from logger.log import create_logger
 from manager.file_manager import file_manager
-from manager.runner_manager import Manager, ready
+from manager.runner_manager import Manager, is_ready, task_count
 from manager.service_manager import registration
 
 app = Flask(__name__)
@@ -41,17 +41,17 @@ def jar_upload():
 
     if result:
         response = jsonify({
-            'message': '업로드가 완료되었습니다. 작업이 진행중 입니다.',
+            'message': 'Upload has been completed. Work is in progress.',
             'polling': f'/tasking?uuid={uuid}'
         }), 202
     else:
-        response = jsonify({'message': '업로드에 실패했습니다.'}), 400
+        response = jsonify({'message': 'Upload failed.'}), 400
 
     return response
 
 
 @app.route('/test', methods=['GET'])
-def test(): return jsonify({'message': '테스트 성공'}), 200
+def test(): return jsonify({'message': 'Test Successful'}), 200
 
 
 @app.route('/tasking', methods=['GET'])
@@ -63,27 +63,29 @@ def tasking():
 
     if is_tasking:
         return jsonify({
-            'message': f'작업은 진행중입니다. 대기번호 : {waiting}',
+            'message': f'Work is in progress. waiting number : {waiting}',
             'polling': f'{request.path}?uuid={uuid}'
         }), 202
     else:
-        return jsonify({'message': '해당 작업은 완료되었습니다.'}), 200
+        return jsonify({'message': 'That work has been completed.'}), 200
 
 
 @app.route('/ready', methods=['GET'])
 def ready():
-    if ready:
-        return jsonify({'message': '대기중인 작업이 없습니다.'}), 200
+    if is_ready():
+        return jsonify({'message': 'There are no pending tasks.'}), 200
     else:
-        return jsonify({'message': f'대기중인 작업의 수 {len(manager.task_list)}'}), 202
+        return jsonify({'message': f'Number of pending tasks {task_count()}'}), 202
 
 
 def add_parse(parse: argparse.ArgumentParser):
-    save_default = "C:\\temp\\" if os.name == 'nt' else "~/uec_temp"
+    temp = os.getenv('TEMP', '/temp')
+    save_default = os.path.join(temp, 'uec')
 
     parse.add_argument('--uec_port', type=int, required=False, default=4074, help='해당 프로그램이 사용할 포트')
     parser.add_argument('--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
     parser.add_argument('--save_dir', type=str, required=False, default=save_default, help='파일을 저장할 위치')
+    parser.add_argument('--dir_created', action='store_true', help='디렉토리가 존재하지 않을 경우 생성합니다.')
     parser.add_argument('--register', action='store_true', help='app 최초 실행시 서비스를 자동 등록')
     parser.add_argument('--debug', action='store_true', help='디버깅')
 
@@ -97,8 +99,15 @@ if __name__ == '__main__':
     port = args.uec_port
     backend_port = args.backend_port
     save_dir = args.save_dir
+    dir_created = args.dir_created
     register = args.register
     debug = args.debug
+
+    if not os.path.exists(save_dir):
+        if dir_created:
+            os.makedirs(save_dir)
+        else:
+            exit(f'Could not find the path to "{save_dir}" Exit the program.')
 
     if register:
         success = asyncio.run(registration(args))
@@ -107,7 +116,7 @@ if __name__ == '__main__':
     if debug:
         log = create_logger('UEC_log', 'uec.log', console_level=debug)
 
-    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug).start()
+    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug, maintenance_count=10).start()
 
     log.info(f"The server has started. Port : {port}")
-    app.run(port=port, debug=debug)
+    app.run(host='0.0.0.0', port=port, debug=debug)
