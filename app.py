@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import math
 import os.path
 import sys
 from uuid import UUID
@@ -51,7 +52,7 @@ def jar_upload():
 
 
 @app.route('/test', methods=['GET'])
-def test(): return jsonify({'message': '테스트 성공'}), 200
+def test(): return jsonify({'message': 'Test Successful'}), 200
 
 
 @app.route('/tasking', methods=['GET'])
@@ -79,12 +80,15 @@ def ready():
 
 
 def add_parse(parse: argparse.ArgumentParser):
-    save_default = "C:\\temp\\" if os.name == 'nt' else "~/uec_temp"
+    temp = os.getenv('TEMP', '/temp')
+    save_default = os.path.join(temp, 'uec')
 
-    parse.add_argument('--uec_port', type=int, required=False, default=4074, help='해당 프로그램이 사용할 포트')
-    parser.add_argument('--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
-    parser.add_argument('--save_dir', type=str, required=False, default=save_default, help='파일을 저장할 위치')
-    parser.add_argument('--register', action='store_true', help='app 최초 실행시 서비스를 자동 등록')
+    parse.add_argument('-up', '--uec_port', type=int, required=False, default=4074, help='해당 프로그램이 사용할 포트')
+    parser.add_argument('-bp', '--backend_port', type=int, required=False, default=8080, help='감시할 백엔드 포트')
+    parser.add_argument('-sd', '--save_dir', type=str, required=False, default=save_default, help='파일을 저장할 위치')
+    parser.add_argument('-d', '--dir_created', action='store_true', help='디렉토리가 존재하지 않을 경우 생성합니다.')
+    parse.add_argument('-mc', '--maintenance_count', type=int, required=False, default=math.inf, help='유지할 파일의 수 입니다.')
+    parser.add_argument('-reg', '--register', action='store_true', help='app 최초 실행시 서비스를 자동 등록')
     parser.add_argument('--debug', action='store_true', help='디버깅')
 
     return parse.parse_args()
@@ -97,8 +101,16 @@ if __name__ == '__main__':
     port = args.uec_port
     backend_port = args.backend_port
     save_dir = args.save_dir
+    dir_created = args.dir_created
+    maintenance_count = args.maintenance_count
     register = args.register
     debug = args.debug
+
+    if not os.path.exists(save_dir):
+        if dir_created:
+            os.makedirs(save_dir)
+        else:
+            exit(f'Could not find the path to "{save_dir}" Exit the program.')
 
     if register:
         success = asyncio.run(registration(args))
@@ -107,7 +119,10 @@ if __name__ == '__main__':
     if debug:
         log = create_logger('UEC_log', 'uec.log', console_level=debug)
 
-    manager = Manager(target_dir=save_dir, server_port=backend_port, debug=debug, maintenance_count=10).start()
+    manager = (Manager(target_dir=save_dir, server_port=backend_port,
+                      debug=debug,
+                      maintenance_count=maintenance_count)
+               .start())
 
     log.info(f"The server has started. Port : {port}")
     app.run(host='0.0.0.0', port=port, debug=debug)

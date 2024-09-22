@@ -108,12 +108,13 @@ class Manager(FileSystemEventHandler):
             old_file_remove(self.target_dir, '.jar', self.maintenance_count, _task_list)
 
     def __start_observer(self):
+        log.debug(f'{self.server_port} Starts port process monitoring.')
+        log.debug(f'{self.target_dir} Starts directory monitoring')
         try:
-            log.debug(f'{self.server_port} Starts port process monitoring.')
-            log.debug(f'{self.target_dir} Starts directory monitoring')
             self.observer.start()
         except FileNotFoundError:
-            log.error(f"Directory : {self.target_dir} Location could not be found. Exit the program.")
+            log.error(f"Directory : {self.target_dir} Location could not be found. Observer is not Started.")
+            self.queue.close()
             sys.exit(1)
 
     @staticmethod
@@ -144,7 +145,9 @@ class Manager(FileSystemEventHandler):
             pass
 
     def start(self):
-        threading.Thread(target=self.__start_observer, daemon=True).start()
+        thread = threading.Thread(target=self.__start_observer, daemon=True)
+        thread.setName('UEC Observer')
+        thread.start()
         return self
 
     def __add_queue(self, obj):
