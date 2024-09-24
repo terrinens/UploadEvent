@@ -49,7 +49,7 @@ JAR 파일을 업로드 하기위한 인수입니다.
 
 ```curl
 curl \
- -X POST http://ADDRESS/jar_upload \
+ -X POST http://localhost:4074/jar_upload \
  -H "Accept: application/json" \
  -H "Content-Type: multipart/form-data" \
  -F "jar=@/path/to/youfile.jar" \
@@ -72,7 +72,7 @@ Status: 202
 
 ```curl
 curl \
- -G http://ADDRESS/test \
+ -G http://localhost:4074/test \
  -H "Accept: application/json" \
 ```
 
@@ -92,7 +92,7 @@ Status: 200
 
 ```curl
 curl \
- -G http://ADDRESS/tasking \
+ -G http://localhost:4074/tasking \
  --data-urlencode "uuid=9cc32cf5-f6bb-5abe-b57b-4a82e5de432c" \
  -H "Accept: application/json" \
 ```
@@ -125,7 +125,7 @@ polling의 요청으로 재요청시 반복적으로 확인이 가능합니다.
 
 ```curl
 curl \
- -G http://ADDRESS/ready \
+ -G http://localhost:4074/ready \
  -H "Accept: application/json" \
 ```
 
